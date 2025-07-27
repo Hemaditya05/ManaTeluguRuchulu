@@ -249,3 +249,6 @@ elif st.session_state.page == "Contact":
     st.markdown(f"<h2>{T('contact_header')}</h2>", unsafe_allow_html=True)
     st.markdown(f"<div class='contact-box'>{T('contact_info')}</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
+
+with open("style.css") as f:
+    st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
