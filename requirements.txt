@@ -1,3 +1,5 @@
 streamlit==1.36.0
 pymongo[gridfs]==4.8.0
+
 passlib==1.7.4
+firebase-admin
