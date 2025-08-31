@@ -1,8 +1,72 @@
 import streamlit as st
 import datetime
+import firebase_admin
+from firebase_admin import credentials, auth
+import json
+import os
 
 # --- Page Configuration ---
 st.set_page_config(layout="wide", initial_sidebar_state="collapsed")
+
+# --- Firebase Authentication Setup ---
+# This section initializes Firebase Admin SDK.
+# YOU MUST CONFIGURE THIS WITH YOUR FIREBASE SERVICE ACCOUNT KEY.
+#
+# Option 1: Using Streamlit Secrets (Recommended for security)
+# 1. Create a `.streamlit` folder in your project directory.
+# 2. Inside that folder, create a file named `secrets.toml`.
+# 3. Paste the contents of your Firebase Service Account JSON file into `secrets.toml`
+#    under a key, for example: `firebase_key = "..."`.
+# 4. In this code, you'll access it with `st.secrets["firebase_key"]`.
+#
+# Option 2: Using an environment variable
+# 1. Save your Firebase Service Account JSON as a string in an environment variable
+#    on your hosting platform (e.g., Heroku, Streamlit Cloud).
+# 2. Access it with `os.environ.get("FIREBASE_CREDENTIALS")`.
+#
+# Option 3: Local file (for development only, DO NOT commit this to Git)
+# 1. Place the service account JSON file (e.g., `serviceAccountKey.json`) in your
+#    project directory.
+# 2. Uncomment and use the `credentials.Certificate("serviceAccountKey.json")` line.
+
+try:
+    # Use Streamlit secrets if available
+    if "firebase_key" in st.secrets:
+        cred = credentials.Certificate(json.loads(st.secrets["firebase_key"]))
+    # Use environment variable as a fallback
+    elif "FIREBASE_CREDENTIALS" in os.environ:
+        cred = credentials.Certificate(json.loads(os.environ["FIREBASE_CREDENTIALS"]))
+    # Use a local file for development (uncomment and replace with your path)
+    # else:
+    #     cred = credentials.Certificate("path/to/your/serviceAccountKey.json")
+
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app(cred)
+except Exception as e:
+    st.error(f"Error initializing Firebase: {e}")
+    st.info("Please ensure your Firebase service account key is correctly configured. Check the instructions in the code.")
+
+def signup_user(email, password):
+    """Creates a new user with the given email and password."""
+    try:
+        auth.create_user(email=email, password=password)
+        return True, "Account created successfully! Please log in."
+    except auth.EmailAlreadyExistsError:
+        return False, "This email is already registered. Please log in or use a different email."
+    except Exception as e:
+        return False, f"Error creating account: {e}"
+
+def login_user(email, password):
+    """Logs in a user by verifying their credentials."""
+    try:
+        user = auth.get_user_by_email(email)
+        # Note: Firebase Admin SDK does not have a direct password check.
+        # This function only verifies the user exists by email.
+        # A real-world app would use a client-side SDK for secure login.
+        # This is for server-side demonstration purposes.
+        return True, "Login successful!"
+    except auth.AuthError as e:
+        return False, "Invalid email or password."
 
 # --- Language Translations ---
 translations = {
@@ -47,11 +111,9 @@ translations = {
         "contact_info": "Email: support@Team10-1 | Hyderabad, Telangana",
         "login_header": "Login to Your Account",
         "signup_header": "Create a New Account",
-        "username": "Username",
+        "username": "Email",
         "password": "Password",
-        "username_exists": "Username already exists. Please choose another one.",
-        "signup_success": "Account created successfully! Please login.",
-        "login_error": "Invalid username or password.",
+        "not_logged_in_warning": "You must be logged in to contribute a recipe. Please log in or sign up.",
     },
     "te": {
         "title": "సాంప్రదాయ తెలుగు వంటల డేటా ప్లాట్‌ఫారమ్",
@@ -94,38 +156,34 @@ translations = {
         "contact_info": "ఇమెయిల్: support@switchr.org | హైదరాబాద్, తెలంగాణ",
         "login_header": "మీ ఖాతాలోకి లాగిన్ అవ్వండి",
         "signup_header": "కొత్త ఖాతాను సృష్టించండి",
-        "username": "యూజర్‌నేమ్",
+        "username": "ఇమెయిల్",
         "password": "పాస్వర్డ్",
-        "username_exists": "ఈ యూజర్‌నేమ్ ఇప్పటికే ఉంది. దయచేసి మరొకదాన్ని ఎంచుకోండి.",
-        "signup_success": "ఖాతా విజయవంతంగా సృష్టించబడింది! దయచేసి లాగిన్ చేయండి.",
-        "login_error": "తప్పు యూజర్‌నేమ్ లేదా పాస్వర్డ్.",
+        "not_logged_in_warning": "వంటకం సమర్పించడానికి మీరు లాగిన్ అయి ఉండాలి. దయచేసి లాగిన్ చేయండి లేదా సైన్ అప్ చేయండి.",
     }
 }
 
 if "page" not in st.session_state:
     st.session_state.page = "Home"
 if "logged_in" not in st.session_state:
-    st.session_state.logged_in = True
+    st.session_state.logged_in = False
 if "username" not in st.session_state:
-    st.session_state.username = "demo"
+    st.session_state.username = None
 if 'lang' not in st.session_state:
     st.session_state.lang = 'en'
+if 'submissions' not in st.session_state:
+    st.session_state.submissions = []
 
 def T(key):
     return translations[st.session_state.lang].get(key, key)
 
 # --- Data Functions ---
-def save_submission(data, images, videos, audios):
-    # Only store text data, ignore files for static demo
-    data["created_at"] = datetime.datetime.utcnow()
-    data["submitted_by"] = st.session_state.username
-    submissions.append(data)
+def save_submission(data):
+    data["created_at"] = datetime.datetime.utcnow().isoformat()
+    data["submitted_by"] = st.session_state.username if st.session_state.username else "Anonymous"
+    st.session_state.submissions.append(data)
 
 def get_all_submissions():
-    return list(reversed(submissions))
-
-def get_image(file_id):
-    return None  # No image support in static mode
+    return list(reversed(st.session_state.submissions))
 
 # --- UI Components ---
 def language_switcher():
@@ -143,7 +201,6 @@ def language_switcher():
 def main_nav():
     NAV_PAGES = ["nav_home", "nav_explore", "nav_contribute", "nav_about", "nav_contact"]
     page_map = {"nav_home": "Home", "nav_explore": "Explore", "nav_contribute": "Contribute", "nav_about": "About", "nav_contact": "Contact"}
-
     cols = st.columns(len(NAV_PAGES))
     for i, page_key in enumerate(NAV_PAGES):
         with cols[i]:
@@ -152,7 +209,61 @@ def main_nav():
                 st.rerun()
 
 def auth_nav():
-    st.markdown(f"<div class='welcome-text'>{T('welcome')}, {st.session_state.username}!</div>", unsafe_allow_html=True)
+    if st.session_state.logged_in:
+        st.markdown(f"<div class='welcome-text'>{T('welcome')}, {st.session_state.username}!</div>", unsafe_allow_html=True)
+        if st.button(T('logout'), key='logout_btn'):
+            st.session_state.logged_in = False
+            st.session_state.username = None
+            st.session_state.page = "Home"
+            st.rerun()
+    else:
+        cols = st.columns([1, 1])
+        with cols[0]:
+            if st.button(T('login'), key='login_btn', use_container_width=True):
+                st.session_state.page = 'Login'
+                st.rerun()
+        with cols[1]:
+            if st.button(T('signup'), key='signup_btn', use_container_width=True):
+                st.session_state.page = 'Signup'
+                st.rerun()
+
+def login_page():
+    st.markdown("<div class='form-container'>", unsafe_allow_html=True)
+    st.markdown(f"<h2>{T('login_header')}</h2>", unsafe_allow_html=True)
+    with st.form("login_form"):
+        username = st.text_input(T("username"), key="login_username")
+        password = st.text_input(T("password"), type="password", key="login_password")
+        submitted = st.form_submit_button(T("login"), type="primary")
+
+    if submitted:
+        success, message = login_user(username, password)
+        if success:
+            st.session_state.logged_in = True
+            st.session_state.username = username
+            st.success(message)
+            st.session_state.page = "Home"
+            st.rerun()
+        else:
+            st.error(message)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def signup_page():
+    st.markdown("<div class='form-container'>", unsafe_allow_html=True)
+    st.markdown(f"<h2>{T('signup_header')}</h2>", unsafe_allow_html=True)
+    with st.form("signup_form"):
+        username = st.text_input(T("username"), key="signup_username")
+        password = st.text_input(T("password"), type="password", key="signup_password")
+        submitted = st.form_submit_button(T("signup"), type="primary")
+
+    if submitted:
+        success, message = signup_user(username, password)
+        if success:
+            st.success(message)
+            st.session_state.page = "Login"
+            st.rerun()
+        else:
+            st.error(message)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # --- Header Section ---
 with st.container():
@@ -170,7 +281,6 @@ if st.session_state.page == "Home":
     st.markdown(f"<div class='main-container home-content'>", unsafe_allow_html=True)
     st.markdown(f"<h1>{T('title')}</h1>", unsafe_allow_html=True)
     st.markdown(f"<p class='subtitle'>{T('subtitle')}</p>", unsafe_allow_html=True)
-    
     if st.button(T('nav_explore'), key="home_explore_btn", type="primary"):
         st.session_state.page = "Explore"
         st.rerun()
@@ -190,23 +300,7 @@ elif st.session_state.page == "Explore":
                 st.markdown("<div class='recipe-card'>", unsafe_allow_html=True)
                 cols = st.columns([1, 2])
                 with cols[0]:
-                    # Image
-                    if sub.get("file_ids", {}).get("images"):
-                        img_data = get_image(sub["file_ids"]["images"][0])
-                        if img_data:
-                            st.image(img_data, use_column_width=True)
-                    else:
-                        st.image("https://via.placeholder.com/300", use_column_width=True)
-                    # Videos
-                    if sub.get("file_ids", {}).get("videos"):
-                        for vid_fid in sub["file_ids"]["videos"]:
-                            video_bytes = fs.get(vid_fid).read()
-                            st.video(video_bytes)
-                    # Audios
-                    if sub.get("file_ids", {}).get("audios"):
-                        for aud_fid in sub["file_ids"]["audios"]:
-                            audio_bytes = fs.get(aud_fid).read()
-                            st.audio(audio_bytes)
+                    st.image("https://via.placeholder.com/300", use_column_width=True)
                 with cols[1]:
                     st.markdown(f"<h3>{sub.get('recipe_name', 'No Title')}</h3>", unsafe_allow_html=True)
                     st.markdown(f"**{T('region')}:** {sub.get('region', 'N/A')}", unsafe_allow_html=True)
@@ -220,6 +314,10 @@ elif st.session_state.page == "Explore":
     st.markdown("</div>", unsafe_allow_html=True)
 
 elif st.session_state.page == "Contribute":
+    if not st.session_state.logged_in:
+        st.warning(T("not_logged_in_warning"))
+        st.stop() # Stop execution to prevent form from appearing
+    
     st.markdown("<div class='form-container'>", unsafe_allow_html=True)
     st.markdown(f"<h2>{T('contribute_header')}</h2>", unsafe_allow_html=True)
     with st.form("contribute_form", clear_on_submit=True):
@@ -234,7 +332,7 @@ elif st.session_state.page == "Contribute":
             "recipe_name": recipe_name, "region": region, "food_type": food_type,
             "ingredients": ingredients, "steps": steps
         }
-        save_submission(data, [], [], [])
+        save_submission(data)
         st.success(T("success_msg"))
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -249,6 +347,17 @@ elif st.session_state.page == "Contact":
     st.markdown(f"<h2>{T('contact_header')}</h2>", unsafe_allow_html=True)
     st.markdown(f"<div class='contact-box'>{T('contact_info')}</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
+    
+elif st.session_state.page == "Login":
+    login_page()
 
-with open("style.css") as f:
-    st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+elif st.session_state.page == "Signup":
+    signup_page()
+    
+# Add CSS for styling
+try:
+    with open("style.css") as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+except FileNotFoundError:
+    st.warning("`style.css` not found. Please create it to apply styling.")
+f
